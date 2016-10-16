@@ -1,15 +1,21 @@
 extern crate wait_timeout;
 
 use std::env;
+use std::sync::{Arc, Mutex};
 use std::process::{Command, Stdio};
 use std::io::{BufRead, Write, BufReader};
 use wait_timeout::ChildExt;
 use std::time::Duration;
 use std::os::unix::io::IntoRawFd;
+use std::thread;
+use std::fs;
+use std::path::Path;
 
 pub struct TTYRecorder {
     pub shell: String,
-    pub window_id: String
+    pub window_id: String,
+    pub delay_screenshot: u64,
+    pub delay_gif: u64
 }
 
 impl TTYRecorder {
@@ -32,14 +38,16 @@ impl TTYRecorder {
         //Create the object
         TTYRecorder {
             shell: TTYRecorder::get_shell(),
-            window_id: TTYRecorder::get_windowid()
+            window_id: TTYRecorder::get_windowid(),
+            delay_screenshot: 250,
+            delay_gif: 30
         }
     }
 
-    pub fn take_snapshot(&self) {
-        println!("ID: {}", &self.window_id);
+    pub fn take_snapshot(window_id: String, cpt: i64) {
+        let path_xwd = format!("{:020}.xwd", cpt);
         let mut snapshot_child = Command::new("/bin/xwd")
-        .arg("-id").arg(&self.window_id).arg("-out").arg("tty.xwd")
+        .arg("-id").arg(window_id).arg("-out").arg(&path_xwd)
         .spawn()
         .expect("failed to take a screenshot");
 
@@ -47,45 +55,79 @@ impl TTYRecorder {
         .expect("failed to wait on child");
 
         assert!(ecode.success());
+    }
 
+    pub fn convert_to_gif(&self) {
+        println!("Creating gif...");
+        let delay = format!("{}", &self.delay_gif);
         let mut convert_child = Command::new("/bin/convert")
-        .arg("tty.xwd").arg("tty.png")
+        .arg("-delay").arg(delay)
+        .arg("*.xwd").arg("tty.gif")
         .spawn()
-        .expect("failed to convert xwd file");
+        .expect("failed to remove *.xwd");
 
         let ecode = convert_child.wait()
         .expect("failed to wait on child");
 
         assert!(ecode.success());
+        println!("Removing useless files");
+
+        let mut cpt = 0;
+        loop {
+            let xwd_file = format!("{:020}.xwd", cpt);
+            let xwd_exists = Path::new(&xwd_file).exists();
+            if xwd_exists {
+                fs::remove_file(&xwd_file);
+            } else {
+                break;
+            }
+            cpt = cpt + 1;
+        }
+
+        println!("done: tty.gif!");
     }
 
     pub fn record_child(&self) {
+        let mut clear_child = Command::new("/bin/clear")
+        .spawn()
+        .expect("failed to clear terminal");
+
+        let ecode = clear_child.wait()
+        .expect("failed to wait on child");
+
+        assert!(ecode.success());
+        thread::sleep(Duration::from_millis(500));
+
         let mut child = Command::new(&self.shell)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::piped())
         .spawn()
         .expect("failed to launch a new shell");
 
-        let one_sec = Duration::from_secs(1000);
-        let mut status_code = None;
+        let window_id = self.window_id.clone();
+        let delay = self.delay_screenshot;
+        let mut is_running = Arc::new(true);
+        let snapshot_thread = thread::spawn(move ||
+        {
+            let mut cpt = 0;
+            let mut run = is_running.clone();
+            while run == Arc::new(true) {
+                TTYRecorder::take_snapshot(window_id.clone(), cpt);
+                cpt = cpt + 1;
+                thread::sleep(Duration::from_millis(delay));
+                run = is_running.clone();
+            }
+        });
 
-        let stdout = child.stdout.take().unwrap().into_raw_fd();
-        let stderr = child.stderr.take().unwrap().into_raw_fd();
-        let stdin = child.stdin.take().unwrap().into_raw_fd();
+        let ecode = child.wait()
+        .expect("failed to wait on child");
 
-        println!("in {} ; out {} ; err {}", stdin, stdout, stderr);
-        while status_code == None {
-            status_code = match child.wait_timeout(one_sec).unwrap() {
-                Some(status) => status.code(),
-                None => None
-            };
-        }
+        assert!(ecode.success());
+        is_running = Arc::new(false);
     }
 }
 
-//Launch Medic
+
 fn main() {
-    let ttyrecorder = TTYRecorder::new();
+    let mut ttyrecorder = TTYRecorder::new();
     ttyrecorder.record_child();
+    ttyrecorder.convert_to_gif();
 }
