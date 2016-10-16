@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["AmarOk <amarok@enconn.fr>"]
 
 [dependencies]
-wait-timeout = "0.1"
+clap = "2"
