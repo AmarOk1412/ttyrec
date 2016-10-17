@@ -1,7 +1,6 @@
 extern crate clap;
 
 use std::env;
-use std::sync::Arc;
 use std::process::Command;
 use std::time::Duration;
 use std::thread;
@@ -13,18 +12,20 @@ pub struct TTYRecorder {
     pub shell: String,
     pub window_id: String,
     pub delay_screenshot: u64,
-    pub delay_gif: u64
+    pub delay_gif: u64,
+    pub format: String
 }
 
 impl TTYRecorder {
 
-    pub fn new(snap_delay: u64, gif_delay: u64) -> TTYRecorder {
+    pub fn new(snap_delay: u64, gif_delay: u64, format: String) -> TTYRecorder {
         //Create the object
         TTYRecorder {
             shell: TTYRecorder::get_shell(),
             window_id: TTYRecorder::get_windowid(),
             delay_screenshot: snap_delay,
-            delay_gif: gif_delay
+            delay_gif: gif_delay,
+            format: format
         }
     }
 
@@ -55,12 +56,13 @@ impl TTYRecorder {
         assert!(ecode.success());
     }
 
-    pub fn convert_to_gif(&self) {
-        println!("Creating gif...");
+    pub fn convert_to_output(&self) {
+        println!("Creating output...");
         let delay = format!("{}", &self.delay_gif);
+        let out_file = format!("{}.{}", "tty", &self.format);
         let mut convert_child = Command::new("/bin/convert")
         .arg("-delay").arg(delay)
-        .arg("*.xwd").arg("tty.gif")
+        .arg("*.xwd").arg(&out_file)
         .spawn()
         .expect("failed to remove *.xwd");
 
@@ -68,6 +70,7 @@ impl TTYRecorder {
         .expect("failed to wait on child");
 
         assert!(ecode.success());
+        println!("done: {}", out_file);
         println!("Removing useless files");
 
         let mut cpt = 0;
@@ -76,82 +79,89 @@ impl TTYRecorder {
             let xwd_exists = Path::new(&xwd_file).exists();
             if xwd_exists {
                 fs::remove_file(&xwd_file).expect("Can't remove file");
-                } else {
-                    break;
-                }
-                cpt = cpt + 1;
+            } else {
+                break;
             }
-
-            println!("done: tty.gif!");
+            cpt = cpt + 1;
         }
+    }
 
-        pub fn record_child(&self) {
-            let mut clear_child = Command::new("/bin/clear")
-            .spawn()
-            .expect("failed to clear terminal");
+    pub fn record_child(&self) {
+        let mut clear_child = Command::new("/bin/clear")
+        .spawn()
+        .expect("failed to clear terminal");
 
-            let ecode = clear_child.wait()
-            .expect("failed to wait on child");
+        let ecode = clear_child.wait()
+        .expect("failed to wait on child");
 
-            assert!(ecode.success());
-            thread::sleep(Duration::from_millis(500));
+        assert!(ecode.success());
+        thread::sleep(Duration::from_millis(500));
 
-            let mut child = Command::new(&self.shell)
-            .spawn()
-            .expect("failed to launch a new shell");
+        let mut child = Command::new(&self.shell)
+        .spawn()
+        .expect("failed to launch a new shell");
 
-            let window_id = self.window_id.clone();
-            let delay = self.delay_screenshot;
-            let mut is_running = Arc::new(true);
-            thread::spawn(move ||
-                {
-                    let mut cpt = 0;
-                    let mut run = is_running.clone();
-                    while run == Arc::new(true) {
-                        TTYRecorder::take_snapshot(window_id.clone(), cpt);
-                        cpt = cpt + 1;
-                        thread::sleep(Duration::from_millis(delay));
-                        run = is_running.clone();
-                    }
-                    });
-
-                    let ecode = child.wait()
-                    .expect("failed to wait on child");
-
-                    assert!(ecode.success());
-                    is_running = Arc::new(false);
-                }
+        let window_id = self.window_id.clone();
+        let delay = self.delay_screenshot;
+        //TODO stop thread while running to avoid a fail on the last pict
+        thread::spawn(move || {
+            let mut cpt = 0;
+            loop {
+                TTYRecorder::take_snapshot(window_id.clone(), cpt);
+                cpt = cpt + 1;
+                thread::sleep(Duration::from_millis(delay));
             }
+        });
+
+        let ecode = child.wait()
+        .expect("failed to wait on child");
+
+        assert!(ecode.success());
+    }
+}
 
 
-            fn main() {
-                let matches = App::new("ttyrec")
-                .version("0.1")
-                .about("Create gif from tty input")
-                .arg(Arg::with_name("snap-delay")
-                .short("sd")
-                .long("snap-delay")
-                .help("Change delay between 2 snapshot")
-                .takes_value(true))
-                .arg(Arg::with_name("gif-delay")
-                .short("gd")
-                .long("gif-delay")
-                .help("Change delay between 2 frame for the gif")
-                .takes_value(true))
-                .get_matches();
+fn main() {
+    let matches = App::new("ttyrec")
+                  .version("0.1")
+                  .about("Create gif from tty input")
+                  .arg(Arg::with_name("snap-delay")
+                  .short("sd")
+                  .long("snap-delay")
+                  .help("Change delay between 2 snapshot")
+                  .takes_value(true))
+                  .arg(Arg::with_name("out-delay")
+                  .short("od")
+                  .long("out-delay")
+                  .help("Change delay between 2 frame for the output file")
+                  .takes_value(true))
+                  .arg(Arg::with_name("video")
+                  .short("v")
+                  .long("video")
+                  .help("Add a tty.mp4"))
+                  .get_matches();
 
-                let mut snap_delay = 30;
-                if matches.is_present("snap-delay") {
-                    snap_delay = matches.value_of("snap-delay").unwrap_or("30").parse::<u64>().unwrap();
-                    println!("sd:{}", snap_delay);
-                }
-                let mut gif_delay = 250;
-                if matches.is_present("gif-delay") {
-                    gif_delay = matches.value_of("gif-delay").unwrap_or("250").parse::<u64>().unwrap();
-                    println!("gd:{}", gif_delay);
-                }
+    let mut snap_delay = 30;
+    if matches.is_present("snap-delay") {
+        snap_delay = matches.value_of("snap-delay").unwrap_or("30").parse::<u64>().unwrap();
+        println!("sd:{}", snap_delay);
+    }
 
-                let ttyrecorder = TTYRecorder::new(snap_delay, gif_delay);
-                ttyrecorder.record_child();
-                ttyrecorder.convert_to_gif();
-            }
+    let mut gif_delay = 250;
+    if matches.is_present("out-delay") {
+        gif_delay = matches.value_of("out-delay").unwrap_or("250").parse::<u64>().unwrap();
+        println!("gd:{}", gif_delay);
+    }
+
+    let mut format = String::from("gif");
+    if matches.is_present("video") {
+        format = String::from("mpeg");
+        if !matches.is_present("out-delay") {
+            gif_delay = 5;
+        }
+    }
+    
+    let ttyrecorder = TTYRecorder::new(snap_delay, gif_delay, format);
+    ttyrecorder.record_child();
+    ttyrecorder.convert_to_output();
+}
