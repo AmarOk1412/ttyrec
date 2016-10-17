@@ -141,15 +141,15 @@ fn main() {
                   .help("Add a tty.mp4"))
                   .get_matches();
 
-    let mut snap_delay = 30;
+    let mut snap_delay = 250;
     if matches.is_present("snap-delay") {
-        snap_delay = matches.value_of("snap-delay").unwrap_or("30").parse::<u64>().unwrap();
+        snap_delay = matches.value_of("snap-delay").unwrap_or("250").parse::<u64>().unwrap();
         println!("sd:{}", snap_delay);
     }
 
-    let mut gif_delay = 250;
+    let mut gif_delay = 30;
     if matches.is_present("out-delay") {
-        gif_delay = matches.value_of("out-delay").unwrap_or("250").parse::<u64>().unwrap();
+        gif_delay = matches.value_of("out-delay").unwrap_or("30").parse::<u64>().unwrap();
         println!("gd:{}", gif_delay);
     }
 
@@ -160,7 +160,7 @@ fn main() {
             gif_delay = 5;
         }
     }
-    
+
     let ttyrecorder = TTYRecorder::new(snap_delay, gif_delay, format);
     ttyrecorder.record_child();
     ttyrecorder.convert_to_output();
