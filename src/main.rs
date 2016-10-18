@@ -15,18 +15,20 @@ pub struct TTYRecorder {
     pub window_id: String,
     pub delay_screenshot: u64,
     pub delay_gif: u64,
+    pub outname: String,
     pub format: String
 }
 
 impl TTYRecorder {
 
-    pub fn new(snap_delay: u64, gif_delay: u64, format: String) -> TTYRecorder {
+    pub fn new(snap_delay: u64, gif_delay: u64, outname: String, format: String) -> TTYRecorder {
         //Create the object
         TTYRecorder {
             shell: TTYRecorder::get_shell(),
             window_id: TTYRecorder::get_windowid(),
             delay_screenshot: snap_delay,
             delay_gif: gif_delay,
+            outname: outname,
             format: format
         }
     }
@@ -61,7 +63,7 @@ impl TTYRecorder {
     pub fn convert_to_output(&self) {
         println!("Creating output...");
         let delay = format!("{}", &self.delay_gif);
-        let out_file = format!("{}.{}", "tty", &self.format);
+        let out_file = format!("{}.{}", &self.outname, &self.format);
         let mut convert_child = Command::new("/bin/convert")
         .arg("-delay").arg(delay)
         .arg("*.xwd").arg(&out_file)
@@ -121,7 +123,10 @@ impl TTYRecorder {
         .expect("failed to wait on child");
         assert!(ecode.success());
         lock.store(false, Ordering::Relaxed);
-        snap_thread.join();
+        match snap_thread.join() {
+            Ok(_) => return,
+            Err(e) => panic!(e),
+        };
     }
 }
 
@@ -140,23 +145,20 @@ fn main() {
                   .long("out-delay")
                   .help("Change delay between 2 frame for the output file")
                   .takes_value(true))
+                  .arg(Arg::with_name("base-filename")
+                  .short("bf")
+                  .long("base-filename")
+                  .help("Change output name")
+                  .takes_value(true))
                   .arg(Arg::with_name("video")
                   .short("v")
                   .long("video")
                   .help("Add a tty.mp4"))
                   .get_matches();
 
-    let mut snap_delay = 250;
-    if matches.is_present("snap-delay") {
-        snap_delay = matches.value_of("snap-delay").unwrap_or("250").parse::<u64>().unwrap();
-        println!("sd:{}", snap_delay);
-    }
-
-    let mut gif_delay = 30;
-    if matches.is_present("out-delay") {
-        gif_delay = matches.value_of("out-delay").unwrap_or("30").parse::<u64>().unwrap();
-        println!("gd:{}", gif_delay);
-    }
+    let snap_delay = matches.value_of("snap-delay").unwrap_or("250").parse::<u64>().unwrap();
+    let mut gif_delay = matches.value_of("out-delay").unwrap_or("30").parse::<u64>().unwrap();
+    let outname = String::from(matches.value_of("base-filename").unwrap_or("tty"));
 
     let mut format = String::from("gif");
     if matches.is_present("video") {
@@ -166,7 +168,7 @@ fn main() {
         }
     }
 
-    let ttyrecorder = TTYRecorder::new(snap_delay, gif_delay, format);
+    let ttyrecorder = TTYRecorder::new(snap_delay, gif_delay, outname, format);
     ttyrecorder.record_child();
     ttyrecorder.convert_to_output();
 }
