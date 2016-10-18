@@ -6,6 +6,8 @@ use std::time::Duration;
 use std::thread;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use clap::{Arg, App};
 
 pub struct TTYRecorder {
@@ -103,10 +105,12 @@ impl TTYRecorder {
 
         let window_id = self.window_id.clone();
         let delay = self.delay_screenshot;
-        //TODO stop thread while running to avoid a fail on the last pict
-        thread::spawn(move || {
+
+        let lock = Arc::new(AtomicBool::new(true));
+        let lock_clone = lock.clone();
+        let snap_thread = thread::spawn(move || {
             let mut cpt = 0;
-            loop {
+            while lock_clone.fetch_and(true, Ordering::SeqCst) {
                 TTYRecorder::take_snapshot(window_id.clone(), cpt);
                 cpt = cpt + 1;
                 thread::sleep(Duration::from_millis(delay));
@@ -115,8 +119,9 @@ impl TTYRecorder {
 
         let ecode = child.wait()
         .expect("failed to wait on child");
-
         assert!(ecode.success());
+        lock.store(false, Ordering::Relaxed);
+        snap_thread.join();
     }
 }
 
