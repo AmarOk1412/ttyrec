@@ -10,11 +10,14 @@ This is a little tool to create video or gif of a tty.
 - ImageMagick (_convert_)
 - xwd
 
+# TODO
+
+- Don't call external commands. Rewrite in rust.
+
 # Usage
 
 ```bash
-./ttyrec -h
-ttyrec 0.1
+ttyrec 0.2
 Create gif from tty input
 
 USAGE:
@@ -22,12 +25,14 @@ USAGE:
 
 FLAGS:
     -h, --help       Prints help information
+    -t, --text       Write a script file with timing.txt
     -V, --version    Prints version information
     -v, --video      Add a tty.mp4
 
 OPTIONS:
-    -o, --out-delay <out-delay>      Change delay between 2 frame for the output file
-    -s, --snap-delay <snap-delay>    Change delay between 2 snapshot
+    -b, --base-filename <base-filename>    Change output name
+    -o, --out-delay <out-delay>            Change delay between 2 frame for the output file
+    -s, --snap-delay <snap-delay>          Change delay between 2 snapshot
 ```
 
 ![ttygif](tty.gif)

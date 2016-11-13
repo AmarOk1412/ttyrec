@@ -101,32 +101,45 @@ impl TTYRecorder {
         assert!(ecode.success());
         thread::sleep(Duration::from_millis(500));
 
-        let mut child = Command::new(&self.shell)
-        .spawn()
-        .expect("failed to launch a new shell");
+        if self.format == String::from("log") {
+            let outfile = format!("{}.log", self.outname);
+            let mut child = Command::new("/bin/script")
+            .arg("--timing=timing.log")
+            .arg(outfile)
+            .spawn()
+            .expect("failed to launch script command");
+            let ecode = child.wait()
+            .expect("failed to wait on child");
+            assert!(ecode.success());
 
-        let window_id = self.window_id.clone();
-        let delay = self.delay_screenshot;
+        } else {
+            let mut child = Command::new(&self.shell)
+            .spawn()
+            .expect("failed to launch a new shell");
 
-        let lock = Arc::new(AtomicBool::new(true));
-        let lock_clone = lock.clone();
-        let snap_thread = thread::spawn(move || {
-            let mut cpt = 0;
-            while lock_clone.fetch_and(true, Ordering::SeqCst) {
-                TTYRecorder::take_snapshot(window_id.clone(), cpt);
-                cpt = cpt + 1;
-                thread::sleep(Duration::from_millis(delay));
-            }
-        });
+            let window_id = self.window_id.clone();
+            let delay = self.delay_screenshot;
 
-        let ecode = child.wait()
-        .expect("failed to wait on child");
-        assert!(ecode.success());
-        lock.store(false, Ordering::Relaxed);
-        match snap_thread.join() {
-            Ok(_) => return,
-            Err(e) => panic!(e),
-        };
+            let lock = Arc::new(AtomicBool::new(true));
+            let lock_clone = lock.clone();
+            let snap_thread = thread::spawn(move || {
+                let mut cpt = 0;
+                while lock_clone.fetch_and(true, Ordering::SeqCst) {
+                    TTYRecorder::take_snapshot(window_id.clone(), cpt);
+                    cpt = cpt + 1;
+                    thread::sleep(Duration::from_millis(delay));
+                }
+            });
+
+            let ecode = child.wait()
+            .expect("failed to wait on child");
+            assert!(ecode.success());
+            lock.store(false, Ordering::Relaxed);
+            match snap_thread.join() {
+                Ok(_) => return,
+                Err(e) => panic!(e),
+            };
+        }
     }
 }
 
@@ -154,6 +167,10 @@ fn main() {
                   .short("v")
                   .long("video")
                   .help("Add a tty.mp4"))
+                  .arg(Arg::with_name("text")
+                  .short("t")
+                  .long("text")
+                  .help("Write a script file with timing.txt"))
                   .get_matches();
 
     let snap_delay = matches.value_of("snap-delay").unwrap_or("250").parse::<u64>().unwrap();
@@ -167,8 +184,14 @@ fn main() {
             gif_delay = 5;
         }
     }
+    if matches.is_present("text") {
+        format = String::from("log");
+    }
 
+    let end_format = format.clone();
     let ttyrecorder = TTYRecorder::new(snap_delay, gif_delay, outname, format);
     ttyrecorder.record_child();
-    ttyrecorder.convert_to_output();
+    if end_format != String::from("log") {
+        ttyrecorder.convert_to_output();
+    }
 }
